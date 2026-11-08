@@ -182,8 +182,9 @@ function RouteMap({ route }) {
   return <div className="route-map-viewport" ref={mapElementRef} aria-label={`Карта: ${route.title}`} />;
 }
 
-function AssistantOverlay() {
+function AssistantOverlay({ standalone = false }) {
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [isPreloading, setIsPreloading] = useState(standalone);
   const [onboarding, setOnboarding] = useState(
     () => localStorage.getItem("assistant-onboarding-done") !== "true",
   );
@@ -211,6 +212,14 @@ function AssistantOverlay() {
   useEffect(() => {
     if (assistantOpen && onboarding) setActiveAction(null);
   }, [assistantOpen, onboarding]);
+  useEffect(() => {
+    if (!standalone) return undefined;
+    const timer = window.setTimeout(() => {
+      setIsPreloading(false);
+      setAssistantOpen(true);
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [standalone]);
   useEffect(() => {
     if (!typingMessage) return undefined;
     if (typingMessage.index >= typingMessage.text.length) {
@@ -397,32 +406,52 @@ function AssistantOverlay() {
 
   return (
     <>
-      <button
-        className={`assistant-launcher ${assistantOpen ? "is-open" : ""}`}
-        aria-label="Открыть Выход"
-        onClick={() => setAssistantOpen((value) => !value)}
-      >
-        <video
-          className="launcher-video"
-          src="/assets/assistant-button-motion.mp4"
-          autoPlay
-          loop
-          muted
-          playsInline
-          aria-hidden="true"
-        />
-      </button>
+      {standalone && isPreloading && (
+        <div className="assistant-preloader" role="status" aria-live="polite">
+          <video
+            className="preloader-video"
+            src="/assets/assistant-button-motion.mp4"
+            poster="/assets/assistant-button-placeholder.gif"
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="auto"
+            aria-hidden="true"
+          />
+        </div>
+      )}
+      {!standalone && (
+        <button
+          className={`assistant-launcher ${assistantOpen ? "is-open" : ""}`}
+          aria-label="Открыть Выход"
+          onClick={() => setAssistantOpen((value) => !value)}
+        >
+          <video
+            className="launcher-video"
+            src="/assets/assistant-button-motion.mp4"
+            poster="/assets/assistant-button-placeholder.gif"
+            autoPlay
+            loop
+            muted
+            playsInline
+            aria-hidden="true"
+          />
+        </button>
+      )}
       {assistantOpen && (
         <>
-          <button
-            className="assistant-backdrop"
-            aria-label="Закрыть чат"
-            onClick={() => setAssistantOpen(false)}
-          />
+          {!standalone && (
+            <button
+              className="assistant-backdrop"
+              aria-label="Закрыть чат"
+              onClick={() => setAssistantOpen(false)}
+            />
+          )}
           <div
-            className="assistant-overlay"
+            className={`assistant-overlay ${standalone ? "standalone-overlay" : ""}`}
             role="dialog"
-            aria-label="Выход личного кабинета"
+            aria-label={standalone ? "Самостоятельный ассистент Выход" : "Выход личного кабинета"}
           >
             <div className="assistant-header">
               <div className="assistant-identity">
@@ -441,13 +470,15 @@ function AssistantOverlay() {
                   <strong>Выход</strong>
                 </div>
               </div>
-              <button
-                className="close-button"
-                onClick={() => setAssistantOpen(false)}
-                aria-label="Закрыть"
-              >
-                ×
-              </button>
+              {!standalone && (
+                <button
+                  className="close-button"
+                  onClick={() => setAssistantOpen(false)}
+                  aria-label="Закрыть"
+                >
+                  ×
+                </button>
+              )}
             </div>
             {onboarding ? (
               <div className="onboarding-view">
@@ -617,17 +648,100 @@ function AssistantOverlay() {
   );
 }
 
-function App() {
+function ModePicker({ onSelect }) {
   return (
-    <main className="app-shell">
-      <iframe
-        className="cabinet-frame"
-        title="Личный кабинет Московского Политеха"
-        src="https://e.mospolytech.ru/#/home"
-      />
+    <main className="mode-picker">
+      <section className="mode-picker-card">
+        <div className="mode-picker-intro">
+          <span className="mode-picker-kicker">ПРОТОТИП «ВЫХОД»</span>
+          <h1>Как запустить ассистента?</h1>
+          <p>Выберите сценарий. Оба варианта используют одного ассистента, но работают в разных окружениях.</p>
+        </div>
+        <div className="mode-options">
+          <button className="mode-card" onClick={() => onSelect("cabinet")}>
+            <span className="mode-card-number">01</span>
+            <span className="mode-card-copy">
+              <strong>В личном кабинете</strong>
+              <small>Ассистент поверх действующего кабинета Московского Политеха.</small>
+            </span>
+            <b aria-hidden="true">→</b>
+          </button>
+          <button className="mode-card mode-card-accent" onClick={() => onSelect("standalone")}>
+            <span className="mode-card-number">02</span>
+            <span className="mode-card-copy">
+              <strong>Самостоятельный режим</strong>
+              <small>Отдельное рабочее пространство без iframe и фонового кабинета.</small>
+            </span>
+            <b aria-hidden="true">→</b>
+          </button>
+        </div>
+        <p className="mode-picker-note">В самостоятельном режиме ассистент запускается автоматически после короткого preloader-экрана.</p>
+      </section>
+    </main>
+  );
+}
+
+const isFirefox =
+  typeof navigator !== "undefined" && /Firefox/i.test(navigator.userAgent);
+const cabinetFrameSource = "https://e.mospolytech.ru/#/home";
+
+function CabinetMode({ onChangeMode }) {
+  return (
+    <main className="app-shell cabinet-shell">
+      {isFirefox ? (
+        <div
+          className="firefox-cabinet-background"
+          role="img"
+          aria-label="Снимок личного кабинета Московского Политеха"
+        />
+      ) : (
+        <iframe
+          className="cabinet-frame"
+          title="Личный кабинет Московского Политеха"
+          src={cabinetFrameSource}
+          loading="eager"
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      )}
+      <button className="mode-switch-button" onClick={onChangeMode}>Выбрать режим</button>
       <AssistantOverlay />
     </main>
   );
+}
+
+function StandaloneMode({ onChangeMode }) {
+  return (
+    <main className="app-shell standalone-shell">
+      <button className="mode-switch-button standalone-mode-switch" onClick={onChangeMode}>
+        Выбрать режим
+      </button>
+      <AssistantOverlay standalone />
+    </main>
+  );
+}
+
+function App() {
+  const initialMode = new URLSearchParams(window.location.search).get("mode");
+  const [mode, setMode] = useState(
+    initialMode === "cabinet" || initialMode === "standalone" ? initialMode : null,
+  );
+  const selectMode = (nextMode) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("mode", nextMode);
+    window.history.replaceState({}, "", url);
+    setMode(nextMode);
+  };
+  const chooseAgain = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("mode");
+    window.history.replaceState({}, "", url);
+    setMode(null);
+  };
+
+  if (!mode) return <ModePicker onSelect={selectMode} />;
+  return mode === "cabinet"
+    ? <CabinetMode onChangeMode={chooseAgain} />
+    : <StandaloneMode onChangeMode={chooseAgain} />;
 }
 createRoot(document.getElementById("root")).render(
   <StrictMode>
